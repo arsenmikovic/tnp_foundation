@@ -1,0 +1,41 @@
+generators:
+  train:
+    _target_: tnp.data.tempopfn_generator.TempoPFNGenerator
+    tempo_root: /scratches/cartwright/am3078/tnp_v2/experiments/TempoPFNDatasets
+    mixture_weights:
+      kernel: 0.1
+      forecast_pfn: 0.1
+      sinewave: 0.1
+      sawtooth: 0.1
+      step: 0.1
+      spike: 0.1
+      anomaly: 0.1
+      ou_process: 0.3
+    length: 128
+    dim: 1
+    min_nc: 64
+    max_nc: 112
+    samples_per_epoch: 16000
+    batch_size: 8
+    deterministic: false
+    deterministic_seed: 0
+
+  val:
+    _target_: tnp.data.tempopfn_generator.TempoPFNGenerator
+    tempo_root: /scratches/cartwright/am3078/tnp_v2/experiments/TempoPFNDatasets
+    mixture_weights: ${generators.train.mixture_weights}
+    length: 128
+    dim: 1
+    min_nc: 64
+    max_nc: 112
+    samples_per_epoch: 4096
+    batch_size: 8
+    deterministic: false
+    deterministic_seed: 123
+
+misc:
+  project: tnp_v2
+  name: foundation_128
+  plot_interval: 1
+  plot_gt: false
+  plot_reversal: false

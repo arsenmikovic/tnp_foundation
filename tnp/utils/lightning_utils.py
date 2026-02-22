@@ -1,11 +1,14 @@
 import dataclasses
+import os
 import time
 from typing import Any, Callable, List, Optional
 
 import lightning.pytorch as pl
+import re
 import torch
 from torch import nn
 from lightning.pytorch.callbacks import Callback
+import wandb
 
 from ..data.base import Batch
 from .np_functions import np_loss_fn, np_pred_fn
@@ -16,6 +19,7 @@ class LitWrapper(pl.LightningModule):
         self,
         model: nn.Module,
         optimiser: torch.optim.Optimizer,
+        lr_scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
         loss_fn: Callable = np_loss_fn,
         pred_fn: Callable = np_pred_fn,
         plot_fn: Optional[Callable] = None,
@@ -25,6 +29,7 @@ class LitWrapper(pl.LightningModule):
 
         self.model = model
         self.optimiser = optimiser
+        self.lr_scheduler = lr_scheduler
         self.loss_fn = loss_fn
         self.pred_fn = pred_fn
         self.plot_fn = plot_fn
@@ -47,6 +52,13 @@ class LitWrapper(pl.LightningModule):
         _ = batch_idx
         loss = self.loss_fn(self.model, batch)
         self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+
+        # Log current learning rate
+        if self.lr_scheduler is not None:
+            # Get the current learning rate from the optimizer
+            current_lr = self.optimizers().param_groups[0]["lr"]
+            self.log("train/lr", current_lr, on_step=True, on_epoch=True, prog_bar=True)
+
         return loss
 
     def validation_step(  # pylint: disable=arguments-differ
@@ -100,7 +112,10 @@ class LitWrapper(pl.LightningModule):
         if len(self.val_batches) == 0:
             return
 
-        if self.plot_fn is not None and (self.current_epoch + 1) % self.plot_interval == 0:
+        if (
+            self.plot_fn is not None
+            and (self.current_epoch + 1) % self.plot_interval == 0
+        ):
             self.plot_fn(
                 self.model, self.val_batches, f"epoch-{self.current_epoch:04d}"
             )
@@ -108,7 +123,22 @@ class LitWrapper(pl.LightningModule):
         self.val_batches = []
 
     def configure_optimizers(self):
-        return self.optimiser
+        # If no scheduler was provided, return the optimizer directly.
+        if self.lr_scheduler is None:
+            return self.optimiser
+
+        # Otherwise return the optimizer + scheduler in the format Lightning expects.
+        # Use step-level scheduling (call scheduler.step() every optimizer step) because
+        # the warmup scheduler we create is step-based. If you prefer epoch-level,
+        # change 'interval' to 'epoch'.
+        return {
+            "optimizer": self.optimiser,
+            "lr_scheduler": {
+                "scheduler": self.lr_scheduler,
+                "interval": "step",
+                "frequency": 1,
+            },
+        }
 
 
 class LogPerformanceCallback(pl.Callback):
@@ -227,18 +257,103 @@ class LogPerformanceCallback(pl.Callback):
         )
         self.between_step_time = time.time()
 
+
+class PostRunCleanupCallback(pl.Callback):
+    def __init__(self, best_ckpt, periodic_ckpt):
+        self.best_ckpt = best_ckpt
+        self.periodic_ckpt = periodic_ckpt
+        self.last_best_score = None
+        # Keep track of artifact names we create so we know what to clean later
+        self.artifact_names = set()
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        # --- 1. Upload BEST (If improved) ---
+        current_score = self.best_ckpt.best_model_score
+        best_path = self.best_ckpt.best_model_path
+
+        if current_score is not None and current_score != self.last_best_score:
+            if os.path.exists(best_path):
+                self.last_best_score = current_score
+                self._upload_only(
+                    path=best_path,
+                    name_suffix="best",
+                    metadata={
+                        "score": float(current_score),
+                        "epoch": trainer.current_epoch,
+                    },
+                )
+
+        # --- 2. Upload PERIODIC (If interval met) ---
+        if (trainer.current_epoch + 1) % self.periodic_ckpt.every_n_epochs == 0:
+            periodic_path = os.path.join(
+                self.periodic_ckpt.dirpath, f"{self.periodic_ckpt.filename}.ckpt"
+            )
+            if os.path.exists(periodic_path):
+                self._upload_only(
+                    path=periodic_path,
+                    name_suffix="last",
+                    metadata={"epoch": trainer.current_epoch},
+                )
+
+    def on_fit_end(self, trainer, pl_module):
+        """
+        Called when training finishes. This is safe to run because
+        dataloaders are dead and file locks should be released.
+        """
+        print("\n🧹 Training finished. Cleaning up old WandB artifact versions...")
+        for name in self.artifact_names:
+            self._cleanup_versions(name)
+
+    def _upload_only(self, path, name_suffix, metadata):
+        """Just uploads. Does NOT delete anything."""
+        # Sanitize name
+        raw_name = wandb.run.name if wandb.run.name else wandb.run.id
+        clean_name = re.sub(r"[^a-zA-Z0-9_\-.]", "_", raw_name)
+        artifact_name = (
+            f"model-{wandb.run.id}-{name_suffix}"  # Use run ID for uniqueness
+        )
+
+        # Track name for end-of-run cleanup
+        self.artifact_names.add(artifact_name)
+
+        # Create and Log (W&B automatically makes this v0, v1, v2...)
+        artifact = wandb.Artifact(name=artifact_name, type="model", metadata=metadata)
+        artifact.add_file(path)
+        wandb.log_artifact(artifact, aliases=["latest", name_suffix])
+
+    def _cleanup_versions(self, artifact_name):
+        """Deletes all versions except the one tagged 'latest'."""
+        try:
+            api = wandb.Api(
+                overrides={"project": wandb.run.project, "entity": wandb.run.entity}
+            )
+            versions = api.artifact_versions("model", artifact_name)
+
+            print(f"   Checking versions for: {artifact_name}")
+            for v in versions:
+                # If it's not the latest, delete it.
+                if "latest" not in v.aliases:
+                    print(f"   ❌ Deleting old version {v.version}")
+                    v.delete()
+                else:
+                    print(f"   ✅ Keeping version {v.version} (latest)")
+
+        except Exception as e:
+            print(f"   ⚠️ Cleanup failed for {artifact_name}: {e}")
+
+
 class DetailedTimingCallback(Callback):
     def on_train_epoch_start(self, trainer, pl_module):
         # 1. Reset Timing
         self.epoch_start_time = time.time()
         self.train_process_time = 0.0
-        
+
         # 2. Reset Memory Stats for the new epoch
         # This ensures we aren't seeing peaks from previous epochs
         if torch.cuda.is_available():
             torch.cuda.reset_peak_memory_stats()
             torch.cuda.reset_accumulated_memory_stats()
-        
+
         self.peak_mem_train_step = 0.0
 
     def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
@@ -249,21 +364,23 @@ class DetailedTimingCallback(Callback):
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         if torch.cuda.is_available():
             torch.cuda.synchronize()
-            
+
             # --- MEMORY TRACKING (Training Phase) ---
             # Capture peak memory seen specifically during this batch
             current_peak = torch.cuda.max_memory_allocated()
             if current_peak > self.peak_mem_train_step:
                 self.peak_mem_train_step = current_peak
-        
+
         # --- TIMING TRACKING ---
-        self.train_process_time += (time.time() - self.batch_start_time)
+        self.train_process_time += time.time() - self.batch_start_time
 
     def on_train_epoch_end(self, trainer, pl_module):
         # 1. Time Calculations
         total_time = time.time() - self.epoch_start_time
         overhead_time = total_time - self.train_process_time
-        duty_cycle = (self.train_process_time / total_time) * 100 if total_time > 0 else 0
+        duty_cycle = (
+            (self.train_process_time / total_time) * 100 if total_time > 0 else 0
+        )
 
         # 2. Memory Calculations
         # This captures the peak for the WHOLE epoch (Training + Validation + Data Loading)
@@ -274,7 +391,7 @@ class DetailedTimingCallback(Callback):
             peak_mem_total = 0.0
 
         # Convert bytes to GB
-        to_gb = 1 / (1024 ** 3)
+        to_gb = 1 / (1024**3)
         peak_train_gb = self.peak_mem_train_step * to_gb
         peak_total_gb = peak_mem_total * to_gb
 
@@ -285,18 +402,20 @@ class DetailedTimingCallback(Callback):
             "timing/train_process_sec": self.train_process_time,
             "timing/overhead_sec": overhead_time,
             "timing/gpu_duty_cycle_pct": duty_cycle,
-            
             # Memory
             "memory/max_train_gb": peak_train_gb,  # Peak during strictly training steps
             "memory/max_epoch_gb": peak_total_gb,  # Peak during entire epoch (incl. Val)
         }
         pl_module.log_dict(metrics, prog_bar=False)
-        
+
         # 4. Print to console
         if trainer.is_global_zero:
-            print(f"\n[Stats] Time: {total_time:.2f}s (Train: {self.train_process_time:.2f}s) | "
-                  f"Mem: {peak_total_gb:.2f}GB (Train Peak: {peak_train_gb:.2f}GB)")
-            
+            print(
+                f"\n[Stats] Time: {total_time:.2f}s (Train: {self.train_process_time:.2f}s) | "
+                f"Mem: {peak_total_gb:.2f}GB (Train Peak: {peak_train_gb:.2f}GB)"
+            )
+
+
 def _batch_to_cpu(batch: Batch):
     batch_kwargs = {
         field.name: (
