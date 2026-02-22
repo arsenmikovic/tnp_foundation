@@ -15,6 +15,8 @@ class SyntheticBatch(Batch):
     gt_std: Optional[torch.Tensor] = None
     gt_loglik: Optional[torch.Tensor] = None
     gt_pred: Optional[GroundTruthPredictor] = None
+    # NEW:
+    generator_name: Optional[str] = None
 
 
 class SyntheticGenerator(DataGenerator, ABC):

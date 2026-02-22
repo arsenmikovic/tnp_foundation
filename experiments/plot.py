@@ -17,6 +17,19 @@ matplotlib.rcParams["mathtext.fontset"] = "stix"
 matplotlib.rcParams["font.family"] = "STIXGeneral"
 
 
+def _x_range_from_batch(xc: torch.Tensor, xt: torch.Tensor, pad_frac: float = 0.05):
+    """
+    xc, xt: tensors shaped [B, Nc, dim] and [B, Nt, dim]
+    Returns (xmin, xmax) based on all dims, with small padding.
+    """
+    x_all = torch.cat([xc.reshape(-1), xt.reshape(-1)])
+    xmin = x_all.min().item()
+    xmax = x_all.max().item()
+    span = xmax - xmin
+    pad = span * pad_frac if span > 0 else 1.0
+    return (xmin - pad, xmax + pad)
+
+
 def plot(
     model: Union[
         nn.Module,
@@ -36,11 +49,6 @@ def plot(
     plot_reversal:  bool = False,
     outfolder: str = "fig",
 ):
-    steps = int(points_per_dim * (x_range[1] - x_range[0]))
-    print('Running the plotting code now...')
-    x_plot = torch.linspace(x_range[0], x_range[1], steps).to(batches[0].xc)[
-        None, :, None
-    ]
     print('Num fig:', num_fig)
     for i in range(num_fig):
         batch = batches[i]
@@ -53,6 +61,13 @@ def plot(
         batch.yc = yc
         batch.xt = xt
         batch.yt = yt
+
+        x_range_i = _x_range_from_batch(xc, xt, pad_frac=0.05)
+
+        # build prediction grid for THIS figure
+        steps = int(points_per_dim * (x_range_i[1] - x_range_i[0]))
+        steps = max(128, min(4096, steps))  # keep sane bounds
+        x_plot = torch.linspace(x_range_i[0], x_range_i[1], steps).to(xc)[None, :, None]
 
         plot_batch = copy.deepcopy(batch)
         plot_batch.xt = x_plot
@@ -101,8 +116,9 @@ def plot(
             label="Model",
         )
 
-        title_str = f"$NC = {xc.shape[1]}$ $NT = {xt.shape[1]}$ NLL = {model_nll:.3f}"
-
+        gen0 = batch.generator_name[0] if hasattr(batch, "generator_name") else "unknown"
+        title_str = f"Generator: {gen0}  NC={xc.shape[1]} NT={xt.shape[1]} NLL={model_nll:.3f}"
+        
         if isinstance(batch, SyntheticBatch) and batch.gt_pred is not None:
             if plot_gt:
                 with torch.no_grad():
@@ -148,7 +164,7 @@ def plot(
                     lw=3,
                 )
 
-                title_str += f" GT NLL = {gt_nll:.3f}"
+                title_str += f"GT NLL = {gt_nll:.3f}"
 
             if plot_reversal and hasattr(batch.gt_pred, 'reversal_point'):
                 assert isinstance(batch.gt_pred, ReversedGPGroundTruthPredictor)
@@ -163,8 +179,8 @@ def plot(
         plt.grid()
 
         # Set axis limits
-        plt.xlim(x_range)
-        plt.ylim(y_lim)
+        # plt.xlim(x_range)
+        # plt.ylim(y_lim)
 
         plt.xticks(fontsize=24)
         plt.yticks(fontsize=24)
