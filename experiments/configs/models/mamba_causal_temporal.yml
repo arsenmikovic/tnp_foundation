@@ -1,0 +1,84 @@
+# sequential_mamba_causal.yaml
+
+model:
+  _target_: tnp.models.mamba.MAMBA
+  encoder: ${mamba_encoder}
+  decoder: ${tnp_decoder}
+  likelihood: ${likelihood}
+
+mamba_encoder:
+  _target_: tnp.models.mamba.CausalTemporalMambaEncoder
+  mamba_layer: ${mamba_layer}
+  xy_encoder: ${xy_encoder}  # Re-attached here
+  num_layers: ${params.num_layers}
+
+xy_encoder:
+  _target_: tnp.networks.mlp.MLP
+  in_dim: ${eval:${params.dim_x}+${params.dim_y}+1} # This handles the [x, y, mask]
+  out_dim: ${params.embed_dim}
+  num_layers: 2
+  width: ${params.embed_dim}
+
+mamba_layer:
+  _target_: tnp.networks.mamba.MambaEncoderLayer
+  embed_dim: ${params.embed_dim}
+  norm: True
+  residual: True
+  mamba2: False
+  d_state: 128
+  block_expansion: 2
+  d_conv: 4
+
+tnp_decoder:
+  # FIX: Use the FullSequenceDecoder from your mnp.py
+  _target_: tnp.models.mamba.FullSequenceDecoder
+  z_decoder: ${z_decoder}
+
+z_decoder:
+  _target_: tnp.networks.mlp.MLP
+  in_dim: ${params.embed_dim}
+  out_dim: ${eval:'2 * ${params.dim_y}'}
+  num_layers: 2
+  width: ${params.embed_dim}
+
+likelihood:
+  _target_: tnp.likelihoods.gaussian.HeteroscedasticNormalLikelihood
+  min_noise: 1.0e-4
+
+optimiser:
+  _target_: torch.optim.AdamW
+  _partial_: True
+  lr: 5.0e-4
+  betas: [0.9, 0.98]
+  eps: 1.0e-9
+  weight_decay: 0.01
+
+scheduler:
+  type: "warmup_cosine"
+  warmup:
+    steps: null
+    fraction: 0.05
+  cosine:
+    eta_min: 1.0e-6
+    T_max: null
+
+params:
+  epochs: 500
+  dim_x: 1
+  dim_y: 1
+  embed_dim: 128
+  num_layers: 5
+
+misc:
+  name: Mamba-Causal-Full-Loss
+  plot_type: "discrete"
+  # Use the custom loss function we wrote for np_functions.py
+  loss_fn: 
+    _target_: tnp.utils.np_functions.full_sequence_loss_fn
+  pred_fn: 
+    _target_: tnp.utils.np_functions.np_pred_fn
+  resume_from_checkpoint: null
+  gradient_clip_val: 0.5
+  plot_interval: 1
+  plot_gt: False
+  logging: True

@@ -92,3 +92,6 @@ class MNP(ConditionalNeuralProcess):
         likelihood: nn.Module,
     ):
         super().__init__(encoder, decoder, likelihood)
+
+
+

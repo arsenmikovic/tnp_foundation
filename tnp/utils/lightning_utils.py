@@ -11,7 +11,7 @@ from lightning.pytorch.callbacks import Callback
 import wandb
 
 from ..data.base import Batch
-from .np_functions import np_loss_fn, np_pred_fn
+from .np_functions import np_loss_fn, np_pred_fn, full_sequence_loss_fn
 
 
 class LitWrapper(pl.LightningModule):
@@ -66,25 +66,23 @@ class LitWrapper(pl.LightningModule):
     ) -> None:
         if batch_idx < 5:
             # Only keep first 5 batches for logging.
-            self.val_batches.append(batch)
+            self.val_batches.append(batch)        
+        # pred_dist = self.pred_fn(self.model, batch)
+        # # Compute metrics to track.
+        # loglik = pred_dist.log_prob(batch.yt).sum() / batch.yt[..., 0].numel()
+        # rmse = nn.functional.mse_loss(pred_dist.mean, batch.yt).sqrt().cpu().mean()
 
-        pred_dist = self.pred_fn(self.model, batch)
+        # self.log("val/loglik", loglik, on_step=False, on_epoch=True, prog_bar=True)
+        # self.log("val/rmse", rmse, on_step=False, on_epoch=True, prog_bar=True)
 
-        # Compute metrics to track.
-        loglik = pred_dist.log_prob(batch.yt).sum() / batch.yt[..., 0].numel()
-        rmse = nn.functional.mse_loss(pred_dist.mean, batch.yt).sqrt().cpu().mean()
-
-        self.log("val/loglik", loglik, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("val/rmse", rmse, on_step=False, on_epoch=True, prog_bar=True)
-
-        if hasattr(batch, "gt_pred") and batch.gt_pred is not None:
-            _, _, gt_loglik = batch.gt_pred(
-                xc=batch.xc, yc=batch.yc, xt=batch.xt, yt=batch.yt
-            )
-            gt_loglik = gt_loglik.sum() / batch.yt[..., 0].numel()
-            self.log(
-                "val/gt_loglik", gt_loglik, on_step=False, on_epoch=True, prog_bar=True
-            )
+        # if hasattr(batch, "gt_pred") and batch.gt_pred is not None:
+        #     _, _, gt_loglik = batch.gt_pred(
+        #         xc=batch.xc, yc=batch.yc, xt=batch.xt, yt=batch.yt
+        #     )
+        #     gt_loglik = gt_loglik.sum() / batch.yt[..., 0].numel()
+        #     self.log(
+        #         "val/gt_loglik", gt_loglik, on_step=False, on_epoch=True, prog_bar=True
+        #     )
 
     def test_step(  # pylint: disable=arguments-differ
         self, batch: Batch, batch_idx: int

@@ -48,6 +48,18 @@ optimiser:
   _target_: torch.optim.AdamW
   _partial_: True
   lr: 5.0e-4
+  betas: [0.9, 0.98]
+  eps: 1.0e-9
+  weight_decay: 0.01
+
+scheduler:
+  type: "warmup_cosine"  # Options: "constant", "warmup", "cosine", "warmup_cosine"
+  warmup:
+    steps: null          # Specific number of warmup steps (overrides fraction)
+    fraction: 0.05       # Fraction of total training steps for warmup
+  cosine:
+    eta_min: 1.0e-6      # Minimum learning rate for cosine annealing
+    T_max: null          # Max steps for cosine (null = auto-calculate)
 params:
   epochs: 500
   embed_dim: 128

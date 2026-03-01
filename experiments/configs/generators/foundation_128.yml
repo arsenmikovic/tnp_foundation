@@ -13,8 +13,8 @@ generators:
       ou_process: 0.3
     length: 128
     dim: 1
-    min_nc: 64
-    max_nc: 112
+    min_nc: 127
+    max_nc: 127
     samples_per_epoch: 16000
     batch_size: 8
     deterministic: false
@@ -26,16 +26,33 @@ generators:
     mixture_weights: ${generators.train.mixture_weights}
     length: 128
     dim: 1
-    min_nc: 64
-    max_nc: 112
+    min_nc: 127
+    max_nc: 127
     samples_per_epoch: 4096
     batch_size: 8
     deterministic: false
     deterministic_seed: 123
 
+  test:
+    _target_: tnp.data.tempopfn_generator.TempoPFNGenerator
+    tempo_root: /scratches/cartwright/am3078/tnp_v2/experiments/TempoPFNTests
+    mixture_weights: ${generators.train.mixture_weights}
+    length: 128
+    dim: 1
+    min_nc: 127
+    max_nc: 127
+    samples_per_epoch: 80_000
+    batch_size: 8
+    deterministic: true
+    deterministic_seed: 123
+
 misc:
-  project: tnp_v2
-  name: foundation_128
+  project: foundation_128
+  name: mamba_casual_temporal
   plot_interval: 1
   plot_gt: false
   plot_reversal: false
+
+
+#   cd /scratches/cartwright/am3078/tnp_v2
+# export PYTHONPATH="/scratches/cartwright/am3078/tnp_v2:/scratches/cartwright/am3078/tnp_v2/TempoPFN:${PYTHONPATH}"

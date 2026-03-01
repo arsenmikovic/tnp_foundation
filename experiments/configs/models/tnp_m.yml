@@ -39,7 +39,7 @@ mhca_layer:
 
 xy_encoder:
   _target_: tnp.networks.mlp.MLP
-  in_dim: ${eval:'1 + ${params.dim_y} + ${params.dim_x}'}
+  in_dim: ${eval:${params.dim_x}+${params.dim_y}+1}
   out_dim: ${params.embed_dim}
   num_layers: 2
   width: ${params.embed_dim}
@@ -63,14 +63,18 @@ optimiser:
   _target_: torch.optim.AdamW
   _partial_: True
   lr: 5.0e-4
+  betas: [0.9, 0.98]
+  eps: 1.0e-9
+  weight_decay: 0.01
 
-params:
-  epochs: 500
-  embed_dim: 128
-  num_heads: 8
-  head_dim: 16
-  norm_first: True
-  num_layers: 5
+scheduler:
+  type: "warmup_cosine"  # Options: "constant", "warmup", "cosine", "warmup_cosine"
+  warmup:
+    steps: null          # Specific number of warmup steps (overrides fraction)
+    fraction: 0.05       # Fraction of total training steps for warmup
+  cosine:
+    eta_min: 1.0e-6      # Minimum learning rate for cosine annealing
+    T_max: null          # Max steps for cosine (null = auto-calculate)
 
 
 misc:
@@ -78,3 +82,13 @@ misc:
   resume_from_checkpoint: null
   gradient_clip_val: 0.5
   plot_interval: 10
+
+params:
+  epochs: 500
+  dim_x: 1
+  dim_y: 1
+  embed_dim: 128
+  num_heads: 8
+  head_dim: 16
+  norm_first: True
+  num_layers: 5

@@ -1,0 +1,5 @@
+model_name,run_path,checkpoint,num_params,mean_loglik,std_loglik,mean_gt_loglik,std_gt_loglik
+mamba_a,am3078-university-of-cambridge/foundation_128/xqigml9l,model-xqigml9l:v122,1164418,-0.2250695824623108,0.004794692620635033,,
+tnp_m,am3078-university-of-cambridge/foundation_128/v16p08id,model-v16p08id:v445,1660418,-0.46631982922554016,0.07924332469701767,,
+mamba_nd,am3078-university-of-cambridge/foundation_128/4ijh0h51,model-4ijh0h51:v283,1164418,-0.1510646641254425,0.006030931603163481,,
+tnp,am3078-university-of-cambridge/foundation_128/um9853y3,model-um9853y3:v475,1058818,-0.36095350980758667,0.027381103485822678,,

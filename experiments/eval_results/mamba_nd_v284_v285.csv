@@ -1,0 +1,3 @@
+model_name,run_path,checkpoint,num_params,mean_loglik,std_loglik,mean_gt_loglik,std_gt_loglik
+mamba_nd_v284,am3078-university-of-cambridge/foundation_128/4ijh0h51,model-4ijh0h51:v284,1164418,-0.036811329424381256,0.017538152635097504,,
+mamba_nd_v285,am3078-university-of-cambridge/foundation_128/4ijh0h51,model-4ijh0h51:v285,1164418,-0.41010528802871704,0.04230616241693497,,

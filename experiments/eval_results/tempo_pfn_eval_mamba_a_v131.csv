@@ -1,0 +1,2 @@
+model_name,run_path,checkpoint,num_params,mean_loglik,std_loglik,mean_gt_loglik,std_gt_loglik
+mamba_a,am3078-university-of-cambridge/foundation_128/xqigml9l,model-xqigml9l:v131,1164418,-0.11995188146829605,0.01625981554389,,
