@@ -74,3 +74,29 @@ def full_sequence_loss_fn(
     loglik = pred_dist.log_prob(y_all).sum() / y_all[..., 0].numel()
 
     return -loglik
+
+def ar_loss_fn(
+    model: nn.Module,
+    batch: Batch,
+    num_samples: int = 1,
+) -> torch.Tensor:
+    """
+    Calculates NLL over the target sequence only.
+    """
+    # 1. Get predictions (Nc + Nt points if using FullSequenceDecoder)
+    pred_dist = np_pred_fn(model, batch, num_samples)
+    
+    # 2. Concatenate context and target ground truths
+    y_all = torch.cat([batch.yc, batch.yt], dim=1)
+    
+    # 3. Calculate log-probabilities for the entire sequence
+    log_probs = pred_dist.log_prob(y_all)
+    
+    # 4. Slice to isolate only the target values (last Nt points)
+    nt = batch.yt.shape[1]
+    target_log_probs = log_probs[:, -nt:]
+    
+    # 5. Calculate negative log-likelihood against the target sequence
+    loglik = target_log_probs.sum() / batch.yt[..., 0].numel()
+
+    return -loglik

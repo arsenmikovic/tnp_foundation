@@ -39,9 +39,9 @@ generators:
     mixture_weights: ${generators.train.mixture_weights}
     length: 128
     dim: 1
-    min_nc: 127
-    max_nc: 127
-    samples_per_epoch: 80_000
+    min_nc: 64
+    max_nc: 64
+    samples_per_epoch: 4096
     batch_size: 8
     deterministic: true
     deterministic_seed: 123
