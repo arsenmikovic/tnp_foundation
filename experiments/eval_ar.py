@@ -3,6 +3,7 @@ import wandb
 import lightning.pytorch as pl
 from tnp.utils.experiment_utils import initialize_evaluation
 from tnp.utils.np_functions import ar_loss_fn
+from tnp.data.tempopfn_generator import TempoPFNGenerator
 
 def main():
     experiment = initialize_evaluation()
