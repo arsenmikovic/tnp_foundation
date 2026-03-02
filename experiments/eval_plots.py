@@ -9,7 +9,7 @@ def main():
 
     model = experiment.model
     eval_name = experiment.misc.eval_name
-    gen_test = experiment.generators.test
+    gen_test = experiment.generators.ar_test
 
     # --- START OF FIX: moving model to CUDA
     # 1. Detect device

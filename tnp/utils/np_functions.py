@@ -153,7 +153,9 @@ def sample_function_trajectory(
         for i in range(nt):
             xt_i = batch.xt[:, i:i+1, :]
             pred_dist_i = model.query(xt_i)
-            sampled_yt_list.append(pred_dist_i.sample())
+            sampled_yt_i = pred_dist_i.sample()
+            sampled_yt_list.append(sampled_yt_i)
+            model.update_ctx(xt_i, sampled_yt_i)
         return torch.cat(sampled_yt_list, dim=1)
 
     else:

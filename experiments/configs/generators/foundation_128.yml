@@ -46,13 +46,31 @@ generators:
     deterministic: true
     deterministic_seed: 123
 
+  ar_test:
+    _target_: tnp.data.tempopfn_generator.TempoPFNGenerator
+    tempo_root: /scratches/cartwright/am3078/tnp_v2/experiments/TempoPFNTests
+    mixture_weights: ${generators.train.mixture_weights}
+    length: 128
+    dim: 1
+    min_nc: 64
+    max_nc: 64
+    samples_per_epoch: 4096
+    batch_size: 8
+    deterministic: true
+    deterministic_seed: 123
+
+
 misc:
   project: foundation_128
   name: mamba_casual_temporal
   eval_name: ar_evals
+  ar_folder: sample_ar_trajectories
   plot_interval: 1
   plot_gt: false
   plot_reversal: false
+  plot_type: "discrete"
+  num_trajectories: 3
+  num_plots: 10
 
 
 #   cd /scratches/cartwright/am3078/tnp_v2
