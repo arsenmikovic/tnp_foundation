@@ -39,8 +39,8 @@ generators:
     mixture_weights: ${generators.train.mixture_weights}
     length: 128
     dim: 1
-    min_nc: 64
-    max_nc: 64
+    min_nc: 112
+    max_nc: 112
     samples_per_epoch: 4096
     batch_size: 8
     deterministic: true
@@ -49,6 +49,7 @@ generators:
 misc:
   project: foundation_128
   name: mamba_casual_temporal
+  eval_name: ar_evals
   plot_interval: 1
   plot_gt: false
   plot_reversal: false

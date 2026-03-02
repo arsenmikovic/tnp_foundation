@@ -40,6 +40,7 @@ def main():
 
     with torch.no_grad():
         for batch_idx, batch in enumerate(gen_test):
+            print(batch_idx, end="\r")  # Progress indicator
             # Ensure batch tensors are on the correct device
             batch.xc = batch.xc.to(device)
             batch.yc = batch.yc.to(device)

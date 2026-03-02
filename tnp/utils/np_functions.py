@@ -75,28 +75,86 @@ def full_sequence_loss_fn(
 
     return -loglik
 
+
 def ar_loss_fn(
     model: nn.Module,
     batch: Batch,
-    num_samples: int = 1,
 ) -> torch.Tensor:
     """
     Calculates NLL over the target sequence only.
     """
-    # 1. Get predictions (Nc + Nt points if using FullSequenceDecoder)
-    pred_dist = np_pred_fn(model, batch, num_samples)
+
+    if isinstance(model, CausalNeuralProcess):
+        # 1. Get predictions (Nc + Nt points if using FullSequenceDecoder)
+        pred_dist = np_pred_fn(model, batch, num_samples)
+        
+        # 2. Concatenate context and target ground truths
+        y_all = torch.cat([batch.yc, batch.yt], dim=1)
+        
+        # 3. Calculate log-probabilities for the entire sequence
+        log_probs = pred_dist.log_prob(y_all)
+        
+        # 4. Slice to isolate only the target values (last Nt points)
+        nt = batch.yt.shape[1]
+        target_log_probs = log_probs[:, -nt:]
+        
+        # 5. Calculate negative log-likelihood against the target sequence
+        loglik = target_log_probs.sum() / batch.yt[..., 0].numel()
     
-    # 2. Concatenate context and target ground truths
-    y_all = torch.cat([batch.yc, batch.yt], dim=1)
-    
-    # 3. Calculate log-probabilities for the entire sequence
-    log_probs = pred_dist.log_prob(y_all)
-    
-    # 4. Slice to isolate only the target values (last Nt points)
-    nt = batch.yt.shape[1]
-    target_log_probs = log_probs[:, -nt:]
-    
-    # 5. Calculate negative log-likelihood against the target sequence
-    loglik = target_log_probs.sum() / batch.yt[..., 0].numel()
+    elif isinstance(model, ConditionalNeuralProcess):
+        # 1. Initialise the incremental caching structures
+        model.init_inc_structs()
+        
+        # 2. Prime the cache with the entire context sequence
+        model.update_ctx(batch.xc, batch.yc)
+        
+        nt = batch.xt.shape[1]
+        total_loglik = 0.0
+        
+        # 3. Iteratively query and update for each target point
+        for i in range(nt):
+            # Isolate the i-th target point
+            xt_i = batch.xt[:, i:i+1, :]
+            yt_i = batch.yt[:, i:i+1, :]
+            
+            # Query the model for the predictive distribution of the current target
+            pred_dist_i = model.query(xt_i)
+            
+            # Accumulate the log-likelihood for this point
+            total_loglik += pred_dist_i.log_prob(yt_i).sum()
+            
+            # Update the context cache with the newly "observed" target point
+            model.update_ctx(xt_i, yt_i)
+            
+        # 4. Average the log-likelihood over all target points
+        loglik = total_loglik / batch.yt[..., 0].numel()
+
+    else:
+        raise ValueError("ar_loss_fn is only implemented for CausalNeuralProcess and ConditionalNeuralProcess.")
 
     return -loglik
+
+
+def sample_function_trajectory(
+    model: nn.Module,
+    batch: Batch,
+) -> torch.Tensor:
+    """
+    Samples a trajectory from the model, i.e. samples yt autoregressively.
+    """
+    if isinstance(model, CausalNeuralProcess):
+        return model.sample_yt_ar(batch.xc, batch.yc, batch.xt)
+
+    elif isinstance(model, ConditionalNeuralProcess):
+        model.init_inc_structs()
+        model.update_ctx(batch.xc, batch.yc)
+        nt = batch.xt.shape[1]
+        sampled_yt_list = []
+        for i in range(nt):
+            xt_i = batch.xt[:, i:i+1, :]
+            pred_dist_i = model.query(xt_i)
+            sampled_yt_list.append(pred_dist_i.sample())
+        return torch.cat(sampled_yt_list, dim=1)
+
+    else:
+        raise ValueError("sample_function_trajectory is only implemented for CausalNeuralProcess and ConditionalNeuralProcess.")
