@@ -35,34 +35,49 @@ def plot_discrete_trajectory(
         plt.scatter(xc, yc, color='black', label='Context', s=30, zorder=5)
         
         # B. Ground Truth Target Points
-        plt.scatter(xt, yt_gt, color='gray', alpha=0.7, label='Ground Truth Target', s=30, zorder=4)
+        plt.scatter(xt, yt_gt, color='gray', alpha=0.9, label='Ground Truth Target', s=30, zorder=4)
         
         # C. Autoregressive Trajectories
         # Sort by X to ensure the lines draw continuously left-to-right
         sort_idx = xt.argsort()
         
         # Adjust styling based on the number of trajectories to keep it looking nice
-        line_alpha = 0.8 if num_trajectories == 1 else max(0.15, 1.0 / (num_trajectories ** 0.6))
+        line_alpha = 0.8 if num_trajectories == 1 else max(0.6, 1.0 / (num_trajectories ** 0.6))
         line_width = 2.0 if num_trajectories == 1 else 1.5
+        
+        # Initialise a colormap with distinct colours
+        cmap = plt.get_cmap('tab20')
         
         for j, sampled_yt in enumerate(batch_samples):
             yt_pred = sampled_yt[0, :, 0].cpu().numpy()
             
-            # Only label the first trajectory to avoid legend duplication
-            label = 'AR Sampled Trajectory' if j == 0 else None
+            # Select a colour from the map
+            colour = cmap(j % 20)
             
-            plt.plot(xt[sort_idx], yt_pred[sort_idx], color='blue', alpha=line_alpha, label=label, linewidth=line_width, zorder=2)
+            # Label individually if there are few, otherwise use a single generic label
+            if num_trajectories <= 10:
+                label = f'AR Trajectory {j+1}'
+            else:
+                label = 'AR Sampled Trajectories' if j == 0 else None
+            
+            plt.plot(xt[sort_idx], yt_pred[sort_idx], color=colour, alpha=line_alpha, label=label, linewidth=line_width, zorder=2)
             
             # Only add small markers on the line if there are very few trajectories
             if num_trajectories <= 3:
-                plt.scatter(xt, yt_pred, color='blue', s=15, alpha=line_alpha, zorder=3)
+                plt.scatter(xt, yt_pred, color=colour, s=15, alpha=line_alpha, zorder=3)
 
         gen0 = batch.generator_name[0] if hasattr(batch, "generator_name") else "unknown"
         
         plt.title(f"Generator: {gen0} (AR Trajectories: {num_trajectories})")
         plt.xlabel("X")
         plt.ylabel("Y")
-        plt.legend(loc='upper left')
+        
+        # Put legend outside if there are many labels, otherwise top left
+        if 1 < num_trajectories <= 10:
+            plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        else:
+            plt.legend(loc='upper left')
+            
         plt.grid(True, linestyle='--', alpha=0.5)
         plt.tight_layout()
 
@@ -82,6 +97,8 @@ def main():
 
     model = experiment.model
     eval_name = experiment.misc.eval_name
+    
+    # Updated to use the AR test generator
     gen_test = experiment.generators.ar_test
 
     # 1. Detect device
@@ -114,8 +131,6 @@ def main():
         # Sample the trajectory multiple times
         with torch.no_grad():
             for _ in range(num_trajectories):
-                # We can loop safely here because sample_function_trajectory 
-                # handles the initialisation of the incremental caches internally.
                 sampled_yt = sample_function_trajectory(model, batch)
                 batch_samples.append(sampled_yt)
                 
@@ -135,8 +150,6 @@ def main():
             outfolder=ar_folder,
         )
     else:
-        # If standard plot, overwrite the ground-truth targets with our FIRST sample.
-        # This is required because standard plot does not natively handle multiple target lists.
         for batch, batch_samples in zip(batches, sampled_yts):
             batch.yt = batch_samples[0]
 

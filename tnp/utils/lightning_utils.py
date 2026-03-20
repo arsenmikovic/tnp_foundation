@@ -9,6 +9,7 @@ import torch
 from torch import nn
 from lightning.pytorch.callbacks import Callback
 import wandb
+import matplotlib.pyplot as plt
 
 from ..data.base import Batch
 from .np_functions import np_loss_fn, np_pred_fn, full_sequence_loss_fn
@@ -42,31 +43,108 @@ class LitWrapper(pl.LightningModule):
         self.test_outputs: List[Any] = []
 
         self.save_hyperparameters(ignore=["model"])
+        
+        # Debug
+        self.prev_batch = None
+        self.prev_loss = None
 
     def forward(self, *args, **kwargs):
         return self.model(*args, **kwargs)
 
-    def training_step(  # pylint: disable=arguments-differ
-        self, batch: Batch, batch_idx: int
-    ) -> torch.Tensor:
-        _ = batch_idx
-        loss = self.loss_fn(self.model, batch)
-        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+    def _log_toxic_batch_as_figures(self, batch, batch_idx, reason,loss=None, epoch = 0):
+        # 1. Only Rank 0 should do the heavy lifting/logging
+        if self.global_rank != 0:
+            return
 
-        # Log current learning rate
-        if self.lr_scheduler is not None:
-            # Get the current learning rate from the optimizer
-            current_lr = self.optimizers().param_groups[0]["lr"]
-            self.log("train/lr", current_lr, on_step=True, on_epoch=True, prog_bar=True)
+        # 2. Move everything to CPU once to avoid multiple GPU-CPU transfers
+        xc = batch.xc.detach().cpu().numpy()
+        yc = batch.yc.detach().cpu().numpy()
+        xt = batch.xt.detach().cpu().numpy()
+        yt = batch.yt.detach().cpu().numpy()
+        
+        figures = []
 
-        return loss
+        for i in range(yc.shape[0]):
+            # Use a fresh figure object instead of the global plt state
+            fig, ax = plt.subplots(figsize=(6, 4))
+            
+            ax.scatter(xc[i].flatten(), yc[i].flatten(), 
+                    label='Context (yc)', color='blue', s=10, alpha=0.6)
+            
+            ax.scatter(xt[i].flatten(), yt[i].flatten(), 
+                    label='Target (yt)', color='red', s=10, marker='x', alpha=0.6)
+            
+            ax.set_xlim(0, 1)
+            if loss:
+                ax.set_title(f"Batch {batch_idx} | Series {i} | {reason} | loss {loss} | epoch {epoch}")
+            else:
+                ax.set_title(f"Batch {batch_idx} | Series {i} | {reason} | epoch {epoch}")
+            ax.legend()
+            ax.grid(True, linestyle='--', alpha=0.5)
+            
+            # 3. Use wandb.Image with the figure directly
+            figures.append(wandb.Image(fig))
+            
+            # 4. CRITICAL: Clear and close to prevent memory leaks
+            fig.clf()
+            plt.close(fig)
+
+        # 5. Log via the logger
+        if self.logger and hasattr(self.logger, "experiment"):
+            self.logger.experiment.log({
+                f"toxic_visuals/{reason}": figures,
+                "trainer/global_step": self.global_step
+            })
+
+    def training_step(self, batch: Batch, batch_idx: int) -> torch.Tensor:
+        try:
+            loss = self.loss_fn(self.model, batch)
+
+            # Check if loss is NaN or Inf
+            if not torch.isfinite(loss) or loss > 100.0:
+                self.log(f"[Rank {self.global_rank}] Bad loss detected ({loss}). Scaling to zero to skip.")
+                self._log_toxic_batch_as_figures(batch, batch_idx, "infinity_crash", loss = loss, epoch = self.current_epoch)
+                if self.prev_batch is not None:
+                    self._log_toxic_batch_as_figures(
+                        self.prev_batch, batch_idx - 1, "previous_batch_before_crash", loss=self.prev_loss, epoch = self.current_epoch
+                    )
+                dummy_loss = sum(p.sum() for p in self.model.parameters() if p.requires_grad) * 0.0
+                return dummy_loss
+
+            self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+            # Update the "History" before returning
+            # We move to CPU and detach to prevent memory leaks and keep GPU free
+            self.prev_batch = _batch_to_cpu(batch)
+            self.prev_loss = loss.detach().item()
+
+            return loss
+
+        except Exception as e:
+            # log not print!
+            self.log("status/error_occurred", 1.0, sync_dist=True)
+            self._log_toxic_batch_as_figures(batch, batch_idx, "exception_crash", epoch = self.current_epoch)
+            # We need a dummy loss that is attached to the model's parameters 
+            # so DDP has something to 'all_reduce'. 
+            # We find any parameter and multiply by 0.
+            # Log the previous batch for context
+            if self.prev_batch is not None:
+                self._log_toxic_batch_as_figures(
+                    self.prev_batch, batch_idx - 1, "previous_batch_before_exception", loss=self.prev_loss, epoch = self.current_epoch
+                )
+                self.prev_batch = None
+                self.prev_loss = None
+
+            dummy_loss = sum(p.sum() for p in self.model.parameters() if p.requires_grad) * 0.0
+            return dummy_loss
 
     def validation_step(  # pylint: disable=arguments-differ
         self, batch: Batch, batch_idx: int
     ) -> None:
         if batch_idx < 5:
             # Only keep first 5 batches for logging.
-            self.val_batches.append(batch)        
+            self.val_batches.append(batch)
+        loss = self.loss_fn(self.model, batch)
+        self.log("val/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
         # pred_dist = self.pred_fn(self.model, batch)
         # # Compute metrics to track.
         # loglik = pred_dist.log_prob(batch.yt).sum() / batch.yt[..., 0].numel()

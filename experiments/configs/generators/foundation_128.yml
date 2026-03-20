@@ -18,7 +18,7 @@ generators:
     samples_per_epoch: 16000
     batch_size: 8
     deterministic: false
-    deterministic_seed: 0
+    deterministic_seed: 123
 
   val:
     _target_: tnp.data.tempopfn_generator.TempoPFNGenerator
@@ -39,8 +39,8 @@ generators:
     mixture_weights: ${generators.train.mixture_weights}
     length: 128
     dim: 1
-    min_nc: 112
-    max_nc: 112
+    min_nc: 64
+    max_nc: 64
     samples_per_epoch: 4096
     batch_size: 8
     deterministic: true
@@ -64,14 +64,16 @@ misc:
   project: foundation_128
   name: mamba_casual_temporal
   eval_name: ar_evals
-  ar_folder: sample_ar_trajectories
+  eval_folder: eval_plots_ar
+  ar_folder: sinusoidal_trajectories
   plot_interval: 1
   plot_gt: false
   plot_reversal: false
   plot_type: "discrete"
-  num_trajectories: 3
-  num_plots: 10
-
+  num_trajectories: 20
+  num_plots: 20
+  plot_ar_updates: true
+  show_nll: true
 
 #   cd /scratches/cartwright/am3078/tnp_v2
 # export PYTHONPATH="/scratches/cartwright/am3078/tnp_v2:/scratches/cartwright/am3078/tnp_v2/TempoPFN:${PYTHONPATH}"

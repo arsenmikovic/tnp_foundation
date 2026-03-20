@@ -65,7 +65,7 @@ def full_sequence_loss_fn(
     Calculates NLL over the entire sequence (context + target).
     """
     # 1. Get predictions (Nc + Nt points if using FullSequenceDecoder)
-    pred_dist = np_pred_fn(model, batch, num_samples)
+    pred_dist = np_pred_fn(model, batch)
     
     # 2. Concatenate context and target ground truths
     y_all = torch.cat([batch.yc, batch.yt], dim=1)
@@ -79,14 +79,14 @@ def full_sequence_loss_fn(
 def ar_loss_fn(
     model: nn.Module,
     batch: Batch,
-) -> torch.Tensor:
+):
     """
     Calculates NLL over the target sequence only.
     """
 
     if isinstance(model, CausalNeuralProcess):
         # 1. Get predictions (Nc + Nt points if using FullSequenceDecoder)
-        pred_dist = np_pred_fn(model, batch, num_samples)
+        pred_dist = np_pred_fn(model, batch)
         
         # 2. Concatenate context and target ground truths
         y_all = torch.cat([batch.yc, batch.yt], dim=1)
@@ -133,6 +133,64 @@ def ar_loss_fn(
         raise ValueError("ar_loss_fn is only implemented for CausalNeuralProcess and ConditionalNeuralProcess.")
 
     return -loglik
+
+
+def ar_pred_fn(
+    model: nn.Module,
+    batch: Batch,
+) -> torch.Tensor:
+    """
+    Calculates NLL over the target sequence only.
+    """
+
+    if isinstance(model, CausalNeuralProcess):
+        pred_dist = np_pred_fn(model, batch)
+        nt = batch.yt.shape[1]
+        # Extract and slice the underlying parameters
+        sliced_loc = pred_dist.loc[:, -nt:, :]
+        sliced_scale = pred_dist.scale[:, -nt:, :]
+        # Return a new Normal distribution using the sliced parameters
+        return torch.distributions.Normal(sliced_loc, sliced_scale)
+    
+    elif isinstance(model, ConditionalNeuralProcess):
+        # 1. Initialise the incremental caching structures
+        model.init_inc_structs()
+        
+        # 2. Prime the cache with the entire context sequence
+        model.update_ctx(batch.xc, batch.yc)
+        
+        nt = batch.xt.shape[1]
+        total_loglik = 0.0
+
+        # Store parameters instead of distribution objects
+        locs = []
+        scales = []
+        
+        # 3. Iteratively query and update for each target point
+        for i in range(nt):
+            # Isolate the i-th target point
+            xt_i = batch.xt[:, i:i+1, :]
+            yt_i = batch.yt[:, i:i+1, :]
+            
+            # Query the model for the predictive distribution of the current target
+            pred_dist_i = model.query(xt_i)
+            
+            # Extract mean (loc) and standard deviation (scale)
+            locs.append(pred_dist_i.loc)
+            scales.append(pred_dist_i.scale)
+            
+            # Update the context cache with the newly "observed" target point
+            model.update_ctx(xt_i, yt_i)
+            
+        # Stack the parameters along the time sequence dimension (dim=1)
+        locs = torch.cat(locs, dim=1)
+        scales = torch.cat(scales, dim=1)
+        
+        # Return a new batched Normal distribution
+        return torch.distributions.Normal(locs, scales)
+
+    else:
+        raise ValueError("ar_pred_fn is only implemented for CausalNeuralProcess and ConditionalNeuralProcess.")
 
 
 def sample_function_trajectory(

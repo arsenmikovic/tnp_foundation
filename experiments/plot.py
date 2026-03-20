@@ -291,6 +291,8 @@ def plot_discrete(
     name="plot", 
     pred_fn=None,
     outfolder="fig",
+    show_nll=False,
+    separate_targets=False,
     **kwargs
 ):
     model.eval()
@@ -316,17 +318,24 @@ def plot_discrete(
         
         # --- PLOTTING ---
         # A. Ground Truth
-        plt.scatter(x_all, y_all, color='black', label='Ground Truth', s=25, zorder=3)
+        if separate_targets:
+            plt.scatter(batch.xc[0, :, 0].cpu(), batch.yc[0, :, 0].cpu(), color='black', label='Context', s=25, zorder=3)
+            plt.scatter(batch.xt[0, :, 0].cpu(), batch.yt[0, :, 0].cpu(), color='gray', label='Target', s=25, zorder=3)
+        else:
+            plt.scatter(x_all, y_all, color='black', label='Ground Truth', s=25, zorder=3)
         
         # B. Predicted Mean
-        plt.plot(x_all, mu, color='blue', label='Predicted Mean', linewidth=2, zorder=2)
+        plt.plot(x_all[-mu.shape[0]:], mu, color='blue', label='Predicted Mean', linewidth=2, zorder=2)
         
         # C. Uncertainty
-        plt.plot(x_all, mu + std, color='red', linestyle=':', label='Mean ± Std', linewidth=1.5, alpha=0.9)
-        plt.plot(x_all, mu - std, color='red', linestyle=':', linewidth=1.5, alpha=0.9)
+        plt.plot(x_all[-mu.shape[0]:], mu + std, color='red', linestyle=':', label='Mean ± Std', linewidth=1.5, alpha=0.9)
+        plt.plot(x_all[-mu.shape[0]:], mu - std, color='red', linestyle=':', linewidth=1.5, alpha=0.9)
 
         gen0 = batch.generator_name[0] if hasattr(batch, "generator_name") else "unknown"
         title_str = f"Generator: {gen0}"
+        if show_nll:
+            nll = -dist.log_prob(batch.yt).sum() / batch.yt.shape[1]
+            title_str += f"  NLL={nll:.3f}"
 
         plt.title(title_str)
         plt.xlabel("X")

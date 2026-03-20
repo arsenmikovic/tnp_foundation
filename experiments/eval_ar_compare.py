@@ -6,6 +6,7 @@ import wandb
 
 from tnp.utils.experiment_utils import initialize_evaluation
 from tnp.utils.np_functions import ar_loss_fn
+from tnp.data.tempopfn_generator import TempoPFNGenerator
 
 def run_single_ar_evaluation(run_path, checkpoint, config_path, model_name):
     """

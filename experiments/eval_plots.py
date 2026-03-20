@@ -1,8 +1,9 @@
-from plot import plot
+from plot import plot, plot_discrete
 
 import wandb
 import torch
 from tnp.utils.experiment_utils import initialize_evaluation
+from tnp.utils.np_functions import np_pred_fn, ar_pred_fn
 
 def main():
     experiment = initialize_evaluation()
@@ -40,19 +41,30 @@ def main():
     
     eval_folder = getattr(experiment.misc, 'eval_folder', 'eval')
     eval_name = eval_name
-    plot(
-        model=model,
-        batches=batches,
-        num_fig=min(experiment.misc.num_plots, len(batches)),
-        name=eval_name,
-        savefig=experiment.misc.savefig,
-        logging=experiment.misc.logging,
-        pred_fn=experiment.misc.pred_fn,
-        plot_gt=experiment.misc.plot_gt,
-        x_range=experiment.misc.plot_x_range,
-        plot_reversal=experiment.misc.plot_reversal,
-        outfolder=eval_folder,
-    )
+    if experiment.misc.plot_ar_updates:
+        plot_discrete(
+            model=model,
+            batches=batches,
+            num_fig=min(experiment.misc.num_plots, len(batches)),
+            savefig=experiment.misc.savefig,
+            logging=experiment.misc.logging,
+            pred_fn=ar_pred_fn,
+            outfolder=eval_folder,
+            show_nll=experiment.misc.show_nll,
+            separate_targets=False
+        )
+    else:
+        plot_discrete(
+            model=model,
+            batches=batches,
+            num_fig=min(experiment.misc.num_plots, len(batches)),
+            savefig=experiment.misc.savefig,
+            logging=experiment.misc.logging,
+            pred_fn=np_pred_fn,
+            outfolder=eval_folder,
+            show_nll=experiment.misc.show_nll,
+            separate_targets=True,
+        )
 
 
 if __name__ == "__main__":

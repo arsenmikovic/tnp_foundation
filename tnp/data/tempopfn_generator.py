@@ -20,7 +20,7 @@ def _normalize_weights(w: Dict[str, float]) -> Dict[str, float]:
         raise ValueError("All mixture weights are <= 0. Provide at least one positive weight.")
     return {k: v / s for k, v in w.items()}
 
-def _normalize_seq_mean_std(y: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+def _normalize_seq_mean_std(y: torch.Tensor, eps: float = 1e-5) -> torch.Tensor:
     """
     Z-score normalize ONE sequence: (y - mean) / std
     Accepts y with shape [L], [L,1], or [1,L,1].
@@ -31,11 +31,12 @@ def _normalize_seq_mean_std(y: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     mean = y1.mean()
     std = y1.std(unbiased=False).clamp_min(eps)
     y1n = (y1 - mean) / std
+    #y1n = torch.clamp(y1n, min=-5.0, max=5.0)
 
     return y1n.reshape(orig_shape)
 
 
-def _normalize_seq_minmax_to_unit(y: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+def _normalize_seq_minmax_to_unit(y: torch.Tensor, eps: float = 1e-5) -> torch.Tensor:
     """
     Min-max normalize ONE sequence to [-1, 1]:
         2*(y - min)/(max-min) - 1
@@ -185,39 +186,46 @@ class TempoPFNGenerator(DataGenerator):
     def _choose_generator(self) -> str:
         return str(self.rng.choice(self._gen_names, p=self._gen_probs))
 
-    def _get_one_univariate_series(self) -> torch.Tensor:
+    def _get_one_univariate_series(self) -> Tuple[torch.Tensor, str]:
         """
-        Returns y_full of shape [1, L, 1]
+        Returns y_full of shape [1, L, 1] with robust clipping and normalization.
         """
         for _ in range(self.max_resample_tries):
             gen_name = self._choose_generator()
             sample = self.datasets[gen_name].get_sample()
             y = _values_to_tensor(sample)  # [1, L_raw, 1]
 
-            # shorten or reject if not exact length
+            # 1. Length Check & Cutting
             L_raw = y.shape[1]
             if L_raw < self.length:
                 continue
             if L_raw > self.length:
-                # simple random cut to length
                 start = int(self.rng.integers(0, L_raw - self.length + 1))
                 y = y[:, start : start + self.length, :]
 
-            if self.reject_nans and torch.isnan(y).any():
+            # 2. Initial NaN check
+            if torch.isnan(y).any():
                 continue
 
-            # ---- RANDOM NORMALISATION CHOICE (single sequence) ----
-            # 0 => mean/std, 1 => minmax to [-1, 1]
-            y = torch.clamp(y, min=-10000.0, max=10000.0)
+            # 3. CLIPPING (Crucial for FP16/BFP16 stability)
+            # We clip to a range that won't overflow when squared (for variance math)
+            y = torch.clamp(y, min=-2000.0, max=2000.0)
+
+            # 4. Robust Normalization
+            # Using a larger epsilon (1e-5) to prevent division by near-zero std
             if int(self.rng.integers(0, 2)) == 0:
-                y = _normalize_seq_mean_std(y)
+                y = _normalize_seq_mean_std(y, eps=1e-5)
             else:
-                y = _normalize_seq_minmax_to_unit(y)
-            # ------------------------------------------------------
+                y = _normalize_seq_minmax_to_unit(y, eps=1e-5)
+
+            # 5. FINAL SAFETY CHECK
+            # If normalization resulted in Inf or NaN (e.g. constant sequence), reject it
+            if not torch.isfinite(y).all():
+                continue
 
             return y, gen_name
 
-        raise RuntimeError("Could not sample a valid univariate series after many tries.")
+        raise RuntimeError(f"Could not sample a valid series after {self.max_resample_tries} tries.")
 
 
     def generate_batch(self) -> SyntheticBatch:

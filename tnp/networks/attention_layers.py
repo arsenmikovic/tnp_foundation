@@ -123,6 +123,21 @@ class MultiHeadSelfAttentionLayer(BaseMultiHeadAttentionLayer):
 
         return x
 
+class CausalMultiHeadSelfAttentionLayer(MultiHeadSelfAttentionLayer):
+    @check_shapes("x: [m, n, d]", "return: [m, n, d]")
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Get sequence length (n) from the input tensor
+        seq_len = x.shape[1]
+        
+        # Create a causal mask: (n, n) boolean or float mask
+        mask = torch.tril(torch.ones(seq_len, seq_len, device=x.device)).bool()
+        
+        # We broadcast the (n, n) mask to [batch_size, n, n] to match @check_shapes
+        mask = mask.unsqueeze(0).expand(x.shape[0], -1, -1)
+
+        # Call the parent forward with our generated causal mask
+        return super().forward(x, mask=mask)
+
 
 class MultiHeadCrossAttentionLayer(BaseMultiHeadAttentionLayer):
     def __init__(self, *, embed_dim: int, **kwargs):
