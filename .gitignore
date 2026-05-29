@@ -173,3 +173,7 @@ cython_debug/
 
 # local datasets
 experiments/TempoPFNDatasets/
+epoch-*.png
+experiments/TempoPFNDatasets/
+experiments/TempoPFNTests/
+experiments/eval_results/
